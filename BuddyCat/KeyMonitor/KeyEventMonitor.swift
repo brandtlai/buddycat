@@ -7,9 +7,9 @@ class KeyEventMonitor {
     private var nsEventMonitor: Any?
     private var localMonitor: Any?
     private var pollTimer: Timer?
-    var onKeyDown: (() -> Void)?
+    var onKeyDown: ((KeyEvent) -> Void)?
 
-    init(onKeyDown: @escaping () -> Void) {
+    init(onKeyDown: @escaping (KeyEvent) -> Void) {
         self.onKeyDown = onKeyDown
     }
 
@@ -56,15 +56,14 @@ class KeyEventMonitor {
     }
 
     private func setupMonitors() {
-        // Strategy: try NSEvent global monitor (simpler, fewer issues)
-        // plus CGEvent tap as backup
         setupNSEventGlobalMonitor()
         setupCGEventTap()
 
-        // Also add a local monitor to verify event system works at all
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            let keyEvent = self.buildKeyEvent(keyCode: event.keyCode)
             NSLog("BuddyCat: LOCAL keyDown detected (key: \(event.keyCode))")
-            self?.onKeyDown?()
+            self.onKeyDown?(keyEvent)
             return event
         }
         NSLog("BuddyCat: All monitors configured")
@@ -72,8 +71,10 @@ class KeyEventMonitor {
 
     private func setupNSEventGlobalMonitor() {
         nsEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return }
+            let keyEvent = self.buildKeyEvent(keyCode: event.keyCode)
             NSLog("BuddyCat: GLOBAL NSEvent keyDown (key: \(event.keyCode))")
-            self?.onKeyDown?()
+            self.onKeyDown?(keyEvent)
         }
         NSLog("BuddyCat: NSEvent global monitor: \(nsEventMonitor != nil ? "OK" : "FAILED")")
     }
@@ -81,7 +82,6 @@ class KeyEventMonitor {
     private func setupCGEventTap() {
         let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
 
-        // Use a simple C-compatible callback wrapper
         let callback: CGEventTapCallBack = { _, type, event, _ in
             if type == .keyDown {
                 NSLog("BuddyCat: CGEvent tap keyDown!")
@@ -89,7 +89,6 @@ class KeyEventMonitor {
             if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
                 NSLog("BuddyCat: CGEvent tap was disabled, this is expected without Input Monitoring")
             }
-            // For listenOnly taps, return nil (don't modify events)
             return nil
         }
 
@@ -111,5 +110,15 @@ class KeyEventMonitor {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         NSLog("BuddyCat: CGEvent tap created and enabled")
+    }
+
+    private func buildKeyEvent(keyCode: UInt16) -> KeyEvent {
+        KeyEvent(
+            timestamp: Date(),
+            keyCode: keyCode,
+            isDelete: keyCode == 51 || keyCode == 117,
+            appName: NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown",
+            inputMethod: InputMethodHelper.currentInputMethodType()
+        )
     }
 }
