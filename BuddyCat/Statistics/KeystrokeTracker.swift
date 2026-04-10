@@ -12,13 +12,17 @@ class KeystrokeTracker {
 
     private(set) var todayCount: Int = 0
     private(set) var currentSpeed: Int = 0  // keys per minute
-    private(set) var streakDuration: TimeInterval = 0
     private(set) var hourlyData: [Int] = Array(repeating: 0, count: 24)
     private(set) var weekData: [DayRecord] = []
+    private(set) var deleteCount: Int = 0
+    private(set) var appBreakdown: [String: Int] = [:]
+    private(set) var inputMethodBreakdown: [String: Int] = [:]
+    private(set) var longestSession: TimeInterval = 0
+    private(set) var sessionCount: Int = 0
 
-    private var recentTimestamps: [Date] = []
-    private var streakStart: Date?
-    private var lastKeystroke: Date?
+    private var recentEvents: [KeyEvent] = []
+    private var sessionStart: Date?
+    private var lastEventTime: Date?
     private var saveTimer: Timer?
     private var currentDateString: String
 
@@ -27,8 +31,8 @@ class KeystrokeTracker {
         loadToday()
     }
 
-    func recordKeystroke() {
-        let now = Date()
+    func recordEvent(_ event: KeyEvent) {
+        let now = event.timestamp
         let todayStr = dateFormatter.string(from: now)
 
         // Handle midnight rollover
@@ -45,19 +49,39 @@ class KeystrokeTracker {
             hourlyData[hour] += 1
         }
 
-        // Speed: keystrokes in last 10 seconds, extrapolated to per minute
-        recentTimestamps.append(now)
-        recentTimestamps.removeAll { now.timeIntervalSince($0) > 10 }
-        currentSpeed = recentTimestamps.count * 6
+        // Per-app tracking
+        appBreakdown[event.appName, default: 0] += 1
 
-        // Streak: consecutive typing with < 3s gap
-        if let last = lastKeystroke, now.timeIntervalSince(last) < 3.0 {
-            streakDuration = now.timeIntervalSince(streakStart ?? now)
-        } else {
-            streakStart = now
-            streakDuration = 0
+        // Input method tracking
+        inputMethodBreakdown[event.inputMethod.rawValue, default: 0] += 1
+
+        // Delete tracking
+        if event.isDelete {
+            deleteCount += 1
         }
-        lastKeystroke = now
+
+        // Speed: events in last 10 seconds, extrapolated to per minute
+        recentEvents.append(event)
+        recentEvents.removeAll { now.timeIntervalSince($0.timestamp) > 10 }
+        currentSpeed = recentEvents.count * 6
+
+        // Session tracking: consecutive typing with < 3s gap
+        if let last = lastEventTime, now.timeIntervalSince(last) < 3.0 {
+            // Continue current session — no action needed
+        } else {
+            // Finalize previous session if it existed
+            if let start = sessionStart, let last = lastEventTime {
+                let duration = last.timeIntervalSince(start)
+                if duration > 0 {
+                    sessionCount += 1
+                    if duration > longestSession {
+                        longestSession = duration
+                    }
+                }
+            }
+            sessionStart = now
+        }
+        lastEventTime = now
 
         scheduleSave()
     }
@@ -71,18 +95,30 @@ class KeystrokeTracker {
         }
         weekData = store.recentDays(7)
 
-        // Decay speed if no recent keystrokes
-        if let last = lastKeystroke, Date().timeIntervalSince(last) > 10 {
+        // Decay speed if no recent events
+        if let last = lastEventTime, Date().timeIntervalSince(last) > 10 {
             currentSpeed = 0
         }
     }
 
     func save() {
-        var record = store.record(for: currentDateString)
-        record = DayRecord(
+        // Snapshot current session into longestSession before saving
+        if let start = sessionStart, let last = lastEventTime {
+            let duration = last.timeIntervalSince(start)
+            if duration > longestSession {
+                longestSession = duration
+            }
+        }
+
+        let record = DayRecord(
             date: currentDateString,
             totalKeystrokes: todayCount,
-            hourlyBuckets: hourlyData
+            hourlyBuckets: hourlyData,
+            deleteCount: deleteCount,
+            appBreakdown: appBreakdown,
+            inputMethodBreakdown: inputMethodBreakdown,
+            longestSession: longestSession,
+            sessionCount: sessionCount
         )
         store.updateRecord(record)
         store.save()
@@ -95,6 +131,11 @@ class KeystrokeTracker {
         if hourlyData.count != 24 {
             hourlyData = Array(repeating: 0, count: 24)
         }
+        deleteCount = record.deleteCount
+        appBreakdown = record.appBreakdown
+        inputMethodBreakdown = record.inputMethodBreakdown
+        longestSession = record.longestSession
+        sessionCount = record.sessionCount
         weekData = store.recentDays(7)
     }
 
