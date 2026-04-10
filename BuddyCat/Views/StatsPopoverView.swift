@@ -19,7 +19,7 @@ struct StatsPopoverView: View {
             HStack(spacing: 12) {
                 StatCard(title: "Today", value: formatCount(tracker.todayCount), icon: "keyboard")
                 StatCard(title: "Speed", value: "\(tracker.currentSpeed)", unit: "kpm", icon: "gauge.open.with.lines.needle.33percent")
-                StatCard(title: "Streak", value: formatDuration(tracker.streakDuration), icon: "flame")
+                StatCard(title: "Streak", value: formatDuration(tracker.longestSession), icon: "flame")
             }
 
             Divider()

@@ -10,9 +10,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("BuddyCat: applicationDidFinishLaunching")
         keystrokeTracker = KeystrokeTracker()
         statusItemController = StatusItemController(tracker: keystrokeTracker)
-        keyEventMonitor = KeyEventMonitor { [weak self] in
+        keyEventMonitor = KeyEventMonitor { [weak self] keyEvent in
             NSLog("BuddyCat: onKeyDown callback invoked!")
-            self?.keystrokeTracker.recordKeystroke()
+            self?.keystrokeTracker.recordEvent(keyEvent)
             self?.statusItemController.animatePaw()
         }
         keyEventMonitor.start()
